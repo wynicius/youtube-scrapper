@@ -1,0 +1,10 @@
+{
+  "name": "monitor-youtube-eleicoes-2026",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monitor de vídeos novos de notícias sobre as eleições 2026 (somente leitura)",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" }
+}
