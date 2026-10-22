@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor Eleições 2026</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #fff; --fg: #1b1b1b; --muted: #6b6b6b; --line: #e3e3df;
+    --accent: #1f5fbf; --accent-fg: #fff; --ok: #2f7d4f; --warn: #b4541c; --chip: #ececea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141416; --card: #1e1e21; --fg: #ececec; --muted: #9a9a9a; --line: #2c2c30; --accent: #5b93f0; --accent-fg: #0f1a2e; --chip: #2a2a2e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; z-index: 1; }
+  h1 { font-size: 17px; margin: 0; flex: 1 1 auto; }
+  .status { font-size: 13px; color: var(--muted); flex: 1 1 100%; }
+  .status .err { color: var(--warn); }
+  button, input, select { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 7px 11px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+  button:disabled { opacity: .6; cursor: default; }
+  input[type=search] { min-width: 180px; flex: 1 1 200px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 10px; }
+  .vazio { color: var(--muted); text-align: center; padding: 48px 16px; }
+  .card { display: grid; grid-template-columns: 160px 1fr; gap: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-decoration: none; color: inherit; }
+  .card:hover { border-color: var(--accent); }
+  .card img { width: 160px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: var(--line); }
+  .card .t { font-weight: 600; margin: 0 0 4px; }
+  .card .m { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  .novo { display: inline-block; background: var(--ok); color: #fff; font-size: 11px; border-radius: 6px; padding: 1px 6px; margin-right: 6px; vertical-align: middle; }
+  .chip { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+  .tempo { font-weight: 600; color: var(--fg); }
+  @media (max-width: 560px) { .card { grid-template-columns: 1fr; } .card img { width: 100%; } }
+  pre#saida { display: none; max-width: 1100px; margin: 0 auto 16px; padding: 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: auto; font-size: 12px; max-height: 260px; }
+  pre#saida.aberto { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor · Eleições 2026 · publicados na última hora</h1>
+  <input id="busca" type="search" placeholder="filtrar por título ou canal">
+  <select id="origem">
+    <option value="">canais + busca</option>
+    <option value="canal">só canais monitorados</option>
+    <option value="busca">só busca por termos</option>
+  </select>
+  <select id="ordem">
+    <option value="data">mais recentes</option>
+    <option value="views">mais vistos</option>
+  </select>
+  <button id="atualizar">Atualizar agora</button>
+  <button id="copiar">Copiar array</button>
+  <button id="baixar" class="primary">Exportar links (JSON)</button>
+  <div class="status" id="status">carregando…</div>
+</header>
+<pre id="saida"></pre>
+<main id="lista"><div class="vazio">carregando…</div></main>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  let todos = [];
+  const vistosAntes = new Set(JSON.parse(localStorage.getItem('vistos') || '[]'));
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtDur = (s) => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const fmtNum = (n) => (n ?? 0).toLocaleString('pt-BR');
+  const haQuanto = (iso) => {
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60e3));
+    if (min < 60) return `há ${min} min`;
+    const h = Math.floor(min / 60);
+    return h < 48 ? `há ${h} h` : `há ${Math.floor(h / 24)} d`;
+  };
+
+  function filtrados() {
+    const q = $('#busca').value.trim().toLowerCase();
+    const origem = $('#origem').value;
+    const lista = todos.filter((v) =>
+      (!origem || v.origem === origem) &&
+      (!q || v.titulo.toLowerCase().includes(q) || (v.canal || '').toLowerCase().includes(q)));
+    if ($('#ordem').value === 'views') lista.sort((a, b) => (b.visualizacoes || 0) - (a.visualizacoes || 0));
+    else lista.sort((a, b) => new Date(b.publicadoEm) - new Date(a.publicadoEm));
+    return lista;
+  }
+
+  function render() {
+    const lista = filtrados();
+    const el = $('#lista');
+    if (!lista.length) { el.innerHTML = '<div class="vazio">Nenhum vídeo publicado na última hora (ainda). A lista atualiza sozinha.</div>'; return; }
+    el.innerHTML = lista.map((v) => `
+      <a class="card" href="${esc(v.url)}" target="_blank" rel="noopener">
+        <img src="${esc(v.thumb)}" alt="" loading="lazy">
+        <div>
+          <p class="t">${vistosAntes.has(v.id) ? '' : '<span class="novo">novo</span>'}${esc(v.titulo)}</p>
+          <div class="m">
+            <span class="tempo">${v.publicadoEstimado ? '~' : ''}${haQuanto(v.publicadoEm)}</span>
+            <span>${esc(v.canal)}</span>
+            <span class="chip">${v.origem === 'busca' ? 'busca' : 'canal'}</span>
+            ${v.duracaoSegundos != null ? `<span>${fmtDur(v.duracaoSegundos)}</span>` : ''}
+            <span>${fmtNum(v.visualizacoes)} views</span>
+            ${v.comentarios != null ? `<span>${fmtNum(v.comentarios)} comentários</span>` : ''}
+          </div>
+        </div>
+      </a>`).join('');
+  }
+
+  async function carregar() {
+    const [videos, st] = await Promise.all([
+      fetch('/api/videos').then((r) => r.json()),
+      fetch('/api/status').then((r) => r.json()),
+    ]);
+    todos = videos;
+    render();
+    const p = [`${st.total} vídeos na última ${st.config.janelaMinutos} min`];
+    p.push(`${st.canais.quantidade} canais` + (st.canais.ultima ? ` (lidos ${haQuanto(st.canais.ultima)}, +${st.canais.novos})` : ' (lendo…)'));
+    if (st.canais.canaisComErro?.length) p.push(`<span class="err">${st.canais.canaisComErro.length} canais com erro</span>`);
+    if (!st.temChave) p.push('<span class="err">busca por termos desligada: falta YOUTUBE_API_KEY no .env</span>');
+    else if (st.busca.erro) p.push(`<span class="err">busca: ${esc(st.busca.erro)}</span>`);
+    else if (st.busca.ultima) p.push(`busca "${esc(st.config.termosBusca.join(' | '))}" ${haQuanto(st.busca.ultima)} (+${st.busca.novos})`);
+    $('#status').innerHTML = p.join(' · ');
+    localStorage.setItem('vistos', JSON.stringify(todos.map((v) => v.id)));
+  }
+
+  $('#busca').addEventListener('input', render);
+  $('#origem').addEventListener('change', render);
+  $('#ordem').addEventListener('change', render);
+
+  $('#atualizar').addEventListener('click', async (e) => {
+    e.target.disabled = true; e.target.textContent = 'Coletando…';
+    try { await fetch('/api/refresh', { method: 'POST' }); await carregar(); }
+    finally { e.target.disabled = false; e.target.textContent = 'Atualizar agora'; }
+  });
+
+  const linksAtuais = () => filtrados().map((v) => v.url);
+
+  $('#copiar').addEventListener('click', async () => {
+    const txt = JSON.stringify(linksAtuais(), null, 2);
+    try { await navigator.clipboard.writeText(txt); } catch {}
+    const pre = $('#saida'); pre.textContent = txt; pre.classList.add('aberto');
+  });
+
+  $('#baixar').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(linksAtuais(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `links-eleicoes-2026-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  carregar().catch((e) => { $('#status').innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+  setInterval(carregar, 30e3);
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "port": 3777,
+  "janelaMinutos": 60,
+  "intervaloCanaisMinutos": 5,
+  "intervaloBuscaMinutos": 15,
+  "termosBusca": ["Bolsonaro", "Lula", "PT", "PL", "Flávio Bolsonaro"],
+  "canaisExigirTermos": false,
+  "buscaSomenteNoticias": true,
+  "duracaoMinSegundos": 60,
+  "duracaoMaxSegundos": 0,
+  "regiao": "BR",
+  "idioma": "pt"
+}
